@@ -227,11 +227,6 @@ func Serve(l net.Listener) error {
 	return nil
 }
 
-type EServer struct {
-	PublicKey, PeersPublicKey, privateKey *[32]byte
-	Conn                                  net.Conn
-}
-
 func handle(client net.Conn) {
 	bx, err := NewBox()
 	if err != nil {
@@ -240,13 +235,13 @@ func handle(client net.Conn) {
 	}
 
 	// key exchange
-	// fmt.Printf("Eserver: generate pub %v priv %v \n", pub, priv)
+	// fmt.Printf("Server: generate pub %v priv %v \n", pub, priv)
 	n, err := client.Write(bx.PublicKey[:])
 	if err != nil {
 		fmt.Printf("Server: %v\n", err)
 		return
 	}
-	// fmt.Printf("EServer: send %d bytes public key to client. %v\n\n", n, pub[:])
+	// fmt.Printf("Server: send %d bytes public key to client. %v\n\n", n, pub[:])
 
 	// get client public key
 	key := make([]byte, 32)
@@ -255,7 +250,7 @@ func handle(client net.Conn) {
 		fmt.Printf("Server: %v\n", err)
 		return
 	}
-	// fmt.Printf("\nEServer: read %d bytes public key from the client p = %v\n\n", n, p)
+	// fmt.Printf("\nServer: read %d bytes public key from the client p = %v\n\n", n, p)
 	var peersKey [32]byte
 	copy(peersKey[:], key[:n])
 	bx.PeersPublicKey = &peersKey
