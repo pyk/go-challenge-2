@@ -1,4 +1,4 @@
-// This program perform authentication and encryption to a tcp network connection.
+// This program performs authentication and encryption to a tcp network connection.
 // It uses golang.org/x/crypto/nacl/box package to authenticates and encrypts
 // messages using public-key cryptography
 package main
@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	MAX_BUFFER = 1024 // max buffer transfered
+	maxBuffer = 1024 // maximum buffer transfered
 )
 
 var (
-	ErrDecryptMsg = errors.New("cannot decrypt the message")
+	errDecryptMsg = errors.New("cannot decrypt the message")
 )
 
 // A Box authenticates and encrypts messages using public-key cryptography.
@@ -65,7 +65,7 @@ func (b Box) Decrypt(em []byte) (m []byte, err error) {
 	if dm, ok := box.Open(nil, em[24:], &nonce, b.PeersPublicKey, b.privateKey); ok {
 		return dm, nil
 	}
-	return nil, ErrDecryptMsg
+	return nil, errDecryptMsg
 }
 
 // A Reader represents a secure reader.
@@ -90,7 +90,7 @@ func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
 // On returns, n == len(dm) if and only if err == nil.
 // Where dm is a decrypted message.
 func (r Reader) Read(p []byte) (n int, err error) {
-	buff := make([]byte, MAX_BUFFER)
+	buff := make([]byte, maxBuffer)
 	n, err = r.rd.Read(buff)
 	if err != nil {
 		return n, err
@@ -138,9 +138,9 @@ func (w Writer) Write(p []byte) (n int, err error) {
 
 // A Client represents a secure client
 type Client struct {
-	rd Reader
-	wr Writer
-	cn net.Conn
+	rd Reader   // a secure reader
+	wr Writer   // a secure writer
+	cn net.Conn // underlying connection
 }
 
 // NewClient returns a new Client with specified Reader, Writer and underlying
@@ -161,16 +161,16 @@ func (c Client) Write(p []byte) (n int, err error) {
 	return
 }
 
-// Close close the connection
+// Close close the underlying connection
 func (c Client) Close() error {
 	return c.cn.Close()
 }
 
 // A Server represents a secure server
 type Server struct {
-	rd Reader
-	wr Writer
-	cn net.Conn
+	rd Reader   // secure reader
+	wr Writer   // secure writer
+	cn net.Conn // underlying connection
 }
 
 // NewServer returns a new Server
@@ -182,7 +182,7 @@ func NewServer(rd Reader, wr Writer, cn net.Conn) Server {
 // connects to the server, perform the handshake
 // and return a reader/writer.
 func Dial(addr string) (io.ReadWriteCloser, error) {
-	// connect to server
+	// connect to the Server with specified addr
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -195,11 +195,22 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 	}
 
 	// Client perform key exchange
+	// NOTE:
+	// to keep it simple i use plain text to exchange public key
+	// but in production use it it should be not like this
+	// due to Man In The Middle attack risk.
+	//
+	// reads public key from the server into key
 	key := make([]byte, 32)
 	n, err := conn.Read(key)
+	if err != nil {
+		return nil, err
+	}
+	// save server pulic key as a peers public key
 	var peersKey [32]byte
 	copy(peersKey[:], key[:n])
 	bx.PeersPublicKey = &peersKey
+	// send Client public key to server
 	n, err = conn.Write(bx.PublicKey[:])
 	if err != nil {
 		return nil, err
@@ -215,17 +226,19 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 // Serve starts a secure echo server on the given listener.
 func Serve(l net.Listener) error {
 	for {
+		// wait until client connected
 		client, err := l.Accept()
 		if err != nil {
 			return err
 		}
+		// handle connected client on new go routine
 		go handle(client)
 	}
 }
 
 // handle handles each client
 func handle(client net.Conn) {
-	// generate new secure Box
+	// generate a new secure Box
 	bx, err := NewBox()
 	if err != nil {
 		fmt.Printf("Server: %v\n", err)
@@ -233,17 +246,25 @@ func handle(client net.Conn) {
 	}
 
 	// Server perform key exchange
+	// NOTE:
+	// to keep it simple i use plain text to exchange public key
+	// but in production use it it should be not like this
+	// due to Man In The Middle attack risk.
+	//
+	// sends Server public key to connected Client
 	n, err := client.Write(bx.PublicKey[:])
 	if err != nil {
 		fmt.Printf("Server: %v\n", err)
 		return
 	}
+	// reads Client public key into key
 	key := make([]byte, 32)
 	n, err = client.Read(key)
 	if err != nil {
 		fmt.Printf("Server: %v\n", err)
 		return
 	}
+	// save Client public key as peers public key
 	var peersKey [32]byte
 	copy(peersKey[:], key[:n])
 	bx.PeersPublicKey = &peersKey
@@ -254,8 +275,8 @@ func handle(client net.Conn) {
 	s := NewServer(rd, wr, client)
 
 	for {
-		// read and decrypt message
-		buff := make([]byte, MAX_BUFFER)
+		// reads encrypted message into buff and decrypts the message
+		buff := make([]byte, maxBuffer)
 		n, err := s.rd.Read(buff)
 		if err != nil {
 			if err == io.EOF {
@@ -265,7 +286,7 @@ func handle(client net.Conn) {
 			return
 		}
 
-		// encrypt and write message to underlying connection
+		// encrypts and writes buffer to underlying connection
 		n, err = s.wr.Write(buff[:n])
 		if err != nil {
 			fmt.Printf("Server: %v\n", err)
